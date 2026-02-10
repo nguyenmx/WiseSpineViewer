@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "target": "es6",
+    "allowSyntheticDefaultImports": true,
+    "typeRoots": ["../../Viewers/node_modules/@types"],
+    "baseUrl": "../../Viewers/node_modules"
+  },
+  "include": ["src"]
+}
