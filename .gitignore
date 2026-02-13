@@ -1,0 +1,3 @@
+# Large medical image files
+*.nii
+*.nii.gz

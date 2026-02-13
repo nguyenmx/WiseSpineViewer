@@ -12,6 +12,10 @@
   },
   "peerDependencies": {
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.0.0",
+    "@ohif/core": "^3.0.0",
+    "@ohif/ui-next": "^3.0.0",
+    "@ohif/extension-default": "^3.0.0"
   }
 }

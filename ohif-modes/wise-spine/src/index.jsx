@@ -1,18 +1,42 @@
 import { id } from './id';
-import { isValidMode, NON_IMAGE_MODALITIES } from '@ohif/mode-basic';
-import getLayoutTemplateModule from './getLayoutTemplateModule';
+import {
+  ohif,
+  cornerstone,
+  segmentation,
+  dicomRT,
+  extensionDependencies,
+  isValidMode,
+  NON_IMAGE_MODALITIES,
+  initToolGroups,
+  toolbarButtons,
+  toolbarSections,
+} from '@ohif/mode-basic';
 
-export const wiseSpineRoute = {
+const wiseSpineRoute = {
   path: 'wiseSpine',
   layoutTemplate: () => {
     return {
-      // Use the default layout template (registered by @ohif/extension-default)
       id: '@wisespine/extension-layout.layoutTemplateModule.wiseSpineLayout',
       props: {
+        leftPanels: [ohif.thumbnailList],
+        leftPanelResizable: true,
+        rightPanels: [
+          cornerstone.labelMapSegmentationPanel,
+          cornerstone.contourSegmentationPanel,
+        ],
+        rightPanelResizable: true,
         viewports: [
           {
-            namespace: '@ohif/extension-cornerstone.viewportModule.cornerstone',
-            displaySetsToDisplay: ['@ohif/extension-default.sopClassHandlerModule.stack'],
+            namespace: cornerstone.viewport,
+            displaySetsToDisplay: [ohif.sopClassHandler],
+          },
+          {
+            namespace: segmentation.viewport,
+            displaySetsToDisplay: [segmentation.sopClassHandler],
+          },
+          {
+            namespace: dicomRT.viewport,
+            displaySetsToDisplay: [dicomRT.sopClassHandler],
           },
         ],
       },
@@ -20,31 +44,74 @@ export const wiseSpineRoute = {
   },
 };
 
-export const mode = {
-  id: "wiseSpine",
-  displayName: 'WiseSpine (Test)',
-  routes: [wiseSpineRoute],
-  extensions: {
-    '@ohif/extension-default': '^3.12.0-beta.122',
-    '@ohif/extension-cornerstone': '^3.12.0-beta.122',
-    '@ohif/extension-measurement-tracking': '^3.12.0-beta.122',
-    '@ohif/extension-cornerstone-dicom-sr': '^3.12.0-beta.122',
-    '@wisespine/extension-layout': '0.0.1',
-  },
-  sopClassHandlers: ['@ohif/extension-default.sopClassHandlerModule.stack'],
-  hotkeys: [],
-  isValidMode,
-  nonModeModalities: NON_IMAGE_MODALITIES,
+const mode = {
+  id: 'wiseSpine',
+  routeName: 'wiseSpine',
+  displayName: 'WiseSpine',
   hide: false,
 
   onModeEnter: ({ servicesManager, extensionManager, commandsManager }) => {
-    console.log('Entering WiseSpine mode');
+    const {
+      measurementService,
+      toolbarService,
+      toolGroupService,
+    } = servicesManager.services;
+
+    measurementService.clearMeasurements();
+
+    // Init tool groups (default, SR, MPR, volume3d)
+    initToolGroups(extensionManager, toolGroupService, commandsManager);
+
+    // Register toolbar buttons
+    toolbarService.register(toolbarButtons);
+
+    // Set up toolbar sections (primary toolbar, more tools, viewport menus, etc.)
+    for (const [key, section] of Object.entries(toolbarSections)) {
+      toolbarService.updateSection(key, section);
+    }
   },
 
   onModeExit: ({ servicesManager }) => {
-    console.log('Exiting WiseSpine mode');
-  },
-};
+    const {
+      toolGroupService,
+      syncGroupService,
+      segmentationService,
+      cornerstoneViewportService,
+      uiDialogService,
+      uiModalService,
+    } = servicesManager.services;
 
+    uiDialogService.hideAll();
+    uiModalService.hide();
+    toolGroupService.destroy();
+    syncGroupService.destroy();
+    segmentationService.destroy();
+    cornerstoneViewportService.destroy();
+  },
+
+  validationTags: {
+    study: [],
+    series: [],
+  },
+
+  isValidMode,
+
+  routes: [wiseSpineRoute],
+
+  extensions: {
+    ...extensionDependencies,
+    '@wisespine/extension-layout': '0.0.1',
+  },
+
+  hangingProtocol: '@ohif/mnGrid',
+
+  sopClassHandlers: [
+    ohif.sopClassHandler,
+    segmentation.sopClassHandler,
+    dicomRT.sopClassHandler,
+  ],
+
+  nonModeModalities: NON_IMAGE_MODALITIES,
+};
 
 export default mode;
