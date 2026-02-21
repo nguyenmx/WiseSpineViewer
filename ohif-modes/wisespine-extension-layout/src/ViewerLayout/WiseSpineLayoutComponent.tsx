@@ -1,46 +1,20 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { SidePanel, Header, InvestigationalUseDialog } from '@ohif/ui-next';
-import { useToolbar, HangingProtocolService } from '@ohif/core';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { SidePanel, Header } from '@ohif/ui-next';
+import { HangingProtocolService } from '@ohif/core';
 import { Toolbar } from '@ohif/extension-default';
 import { useAppConfig } from '@state';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { preserveQueryParameters } from '@ohif/app';
+import ChatController from '../components/ChatController';
 
-// function SpineToolsPanel() {
-//   const [activeTool, setActiveTool] = useState(null);
-
-//   const tools = [
-//     { id: 'segmentation', label: 'Segmentation', icon: '✂︎' },
-//     { id: 'cobbAngle', label: 'Cobb Angle', icon: '∠' },
-//     { id: 'vertebraLabel', label: 'Vertebra Label', icon: '▣' },
-//     { id: 'discHeight', label: 'Disc Height', icon: '↕' },
-//     { id: 'sagittalBalance', label: 'Sagittal Balance', icon: '⊥' },
-//   ];
-
-//   return (
-//     <div className="flex flex-col w-64 bg-black text-white h-full overflow-y-auto">
-//       <div className="px-3 py-2 border-b border-gray-700">
-//         <h3 className="text-sm font-semibold text-white">Spine Tools</h3>
-//       </div>
-//       <div className="flex flex-col gap-1 p-2">
-//         {tools.map(tool => (
-//           <button
-//             key={tool.id}
-//             className={`flex items-center gap-2 px-3 py-2 rounded text-sm text-left transition-colors ${
-//               activeTool === tool.id
-//                 ? 'bg-blue-600 text-white'
-//                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-//             }`}
-//             onClick={() => setActiveTool(activeTool === tool.id ? null : tool.id)}
-//           >
-//             <span className="text-lg">{tool.icon}</span>
-//             <span>{tool.label}</span>
-//           </button>
-//         ))}
-//       </div>
-//     </div>
-//   );
-// }
+const CHAT_TAB = {
+  id: 'aiChat',
+  name: 'aiChat',
+  label: 'AI Chat',
+  iconName: 'TabChatBubble',
+  iconLabel: 'AI Chat',
+  content: ChatController,
+};
 
 function ViewerHeader({ extensionManager, servicesManager, appConfig }) {
   const navigate = useNavigate();
@@ -103,13 +77,95 @@ function WiseSpineLayoutComponent({
   );
 
   const [hasLeftPanels, setHasLeftPanels] = useState(hasPanels('left'));
-  const [hasRightPanels, setHasRightPanels] = useState(hasPanels('right'));
+  const [hasRightPanels, setHasRightPanels] = useState(true);
   const [leftTabs, setLeftTabs] = useState(panelService.getPanels('left'));
-  const [rightTabs, setRightTabs] = useState(panelService.getPanels('right'));
+  const [rightTabs, setRightTabs] = useState([...panelService.getPanels('right'), CHAT_TAB]);
   const [leftExpanded, setLeftExpanded] = useState(!leftPanelClosed);
   const [rightExpanded, setRightExpanded] = useState(!rightPanelClosed);
   const [leftActiveTabIndex, setLeftActiveTabIndex] = useState(0);
   const [rightActiveTabIndex, setRightActiveTabIndex] = useState(0);
+  const [rightPanelWidth, setRightPanelWidth] = useState(280);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(282);
+  const isResizingRef = useRef(false);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(280);
+  const isResizingLeftRef = useRef(false);
+  const resizeLeftStartXRef = useRef(0);
+  const resizeLeftStartWidthRef = useRef(282);
+  const dragLineRef = useRef<HTMLDivElement>(null);
+
+  // Resize drag logic — right panel
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    resizeStartXRef.current = e.clientX;
+    resizeStartWidthRef.current = rightPanelWidth;
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    if (dragLineRef.current) {
+      dragLineRef.current.style.left = `${e.clientX}px`;
+      dragLineRef.current.style.display = 'block';
+    }
+  }, [rightPanelWidth]);
+
+  // Resize drag logic — left panel
+  const handleLeftResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingLeftRef.current = true;
+    resizeLeftStartXRef.current = e.clientX;
+    resizeLeftStartWidthRef.current = leftPanelWidth;
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    if (dragLineRef.current) {
+      dragLineRef.current.style.left = `${e.clientX}px`;
+      dragLineRef.current.style.display = 'block';
+    }
+  }, [leftPanelWidth]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      // Move the drag indicator line — no setState, no React re-render, no canvas repaint
+      if ((isResizingRef.current || isResizingLeftRef.current) && dragLineRef.current) {
+        dragLineRef.current.style.left = `${e.clientX}px`;
+      }
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (isResizingRef.current) {
+        const delta = resizeStartXRef.current - e.clientX;
+        const newWidth = Math.max(200, Math.min(700, resizeStartWidthRef.current + delta));
+        setRightPanelWidth(newWidth);
+      }
+      if (isResizingLeftRef.current) {
+        const delta = e.clientX - resizeLeftStartXRef.current;
+        const newWidth = Math.max(200, Math.min(700, resizeLeftStartWidthRef.current + delta));
+        setLeftPanelWidth(newWidth);
+      }
+      if (isResizingRef.current || isResizingLeftRef.current) {
+        isResizingRef.current = false;
+        isResizingLeftRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (dragLineRef.current) dragLineRef.current.style.display = 'none';
+      }
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  // Disable hotkeys when any chat tab is active, re-enable when viewport is clicked
+  const isChatActive = rightExpanded && rightTabs[rightActiveTabIndex]?.id === 'aiChat';
+
+  useEffect(() => {
+    if (isChatActive) {
+      hotkeysManager.disable();
+    } else {
+      hotkeysManager.enable();
+    }
+  }, [isChatActive, hotkeysManager]);
 
   // Listen for panel changes
   useEffect(() => {
@@ -117,9 +173,9 @@ function WiseSpineLayoutComponent({
       panelService.EVENTS.PANELS_CHANGED,
       ({ options }) => {
         setHasLeftPanels(hasPanels('left'));
-        setHasRightPanels(hasPanels('right'));
+        setHasRightPanels(true);
         setLeftTabs(panelService.getPanels('left'));
-        setRightTabs(panelService.getPanels('right'));
+        setRightTabs([...panelService.getPanels('right'), CHAT_TAB]);
         if (options?.leftPanelClosed !== undefined) {
           setLeftExpanded(!options.leftPanelClosed);
         }
@@ -195,6 +251,13 @@ function WiseSpineLayoutComponent({
         className="relative flex w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
         style={{ height: 'calc(100vh - 52px)' }}
       >
+        {/* Drag indicator line — shown during panel resize to avoid canvas repaints */}
+        <div
+          ref={dragLineRef}
+          className="pointer-events-none absolute inset-y-0 z-50 w-0.5 bg-blue-400 opacity-80"
+          style={{ display: 'none', left: 0 }}
+        />
+
         {/* LEFT SIDE PANEL */}
         {hasLeftPanels && (
           <SidePanel
@@ -207,16 +270,27 @@ function WiseSpineLayoutComponent({
             onActiveTabIndexChange={({ activeTabIndex }) =>
               setLeftActiveTabIndex(activeTabIndex)
             }
-            expandedWidth={282}
+            expandedWidth={leftPanelWidth}
             collapsedWidth={25}
           />
         )}
 
-        {/* SPINE TOOLS PANEL */}
-        {/* <SpineToolsPanel /> */}
+        {/* LEFT PANEL RESIZE HANDLE */}
+        {hasLeftPanels && leftExpanded && (
+          <div
+            className="group relative z-10 flex w-4 items-center justify-center"
+            style={{ cursor: 'ew-resize' }}
+            onMouseDown={handleLeftResizeMouseDown}
+          >
+            <div className="h-8 w-0.5 rounded bg-gray-600 group-hover:bg-blue-400" />
+          </div>
+        )}
 
         {/* VIEWPORT GRID */}
-        <div className="flex h-full flex-1 flex-col">
+        <div
+          className="flex h-full flex-1 flex-col"
+          onMouseDown={() => hotkeysManager.enable()}
+        >
           <div className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black">
             <ViewportGridComp
               servicesManager={servicesManager}
@@ -225,6 +299,17 @@ function WiseSpineLayoutComponent({
             />
           </div>
         </div>
+
+        {/* RIGHT PANEL RESIZE HANDLE */}
+        {hasRightPanels && rightExpanded && (
+          <div
+            className="group relative z-10 flex w-4 items-center justify-center"
+            style={{ cursor: 'ew-resize' }}
+            onMouseDown={handleResizeMouseDown}
+          >
+            <div className="h-8 w-0.5 rounded bg-gray-600 group-hover:bg-blue-400" />
+          </div>
+        )}
 
         {/* RIGHT SIDE PANEL */}
         {hasRightPanels && (
@@ -238,7 +323,7 @@ function WiseSpineLayoutComponent({
             onActiveTabIndexChange={({ activeTabIndex }) =>
               setRightActiveTabIndex(activeTabIndex)
             }
-            expandedWidth={280}
+            expandedWidth={rightPanelWidth}
             collapsedWidth={25}
           />
         )}
