@@ -10,7 +10,7 @@ A custom OHIF v3 medical imaging viewer with an integrated AI chat assistant, bu
 WiseSpine/
 ├── Viewers/                        — OHIF v3 monorepo (the main viewer app)
 ├── ohif-modes/
-│   ├── wise-spine/                 — WiseSpine OHIF mode
+│   ├── wise-spine/                 — WiseSpine OHIF mode (route: /wiseSpine)
 │   └── wisespine-extension-layout/ — Custom layout extension + AI chatbot
 └── orthanc-setup-samples/
     └── docker/ohif/                — Docker Compose stack (Orthanc + nginx)
@@ -20,98 +20,149 @@ WiseSpine/
 
 ## Prerequisites
 
-Install the following before starting:
-
 | Tool | Version | Notes |
 |------|---------|-------|
-| Git | any | For cloning the repo |
-| Node.js | 20.x | Use [nvm](https://github.com/nvm-sh/nvm) or [nvm-windows](https://github.com/coreybutler/nvm-windows) to manage versions |
+| Git | any | For cloning |
+| Node.js | ≥ 18 | Use [nvm](https://github.com/nvm-sh/nvm) or [nvm-windows](https://github.com/coreybutler/nvm-windows) |
 | Yarn | ≥ 1.20 | `npm install -g yarn` |
-| Docker Desktop | any | Includes Docker Compose |
-| Ollama | any | **Optional** — only needed for local LLM models |
+| Docker Desktop | any | Must be running before Step 2 |
+| Ollama | any | **Optional** — only needed for local AI models |
 
 ---
 
-## First-Time Setup
+## Architecture Overview
 
-### 1. Clone the repository
+The setup has two parts running simultaneously:
+
+| Part | Port | What it does |
+|------|------|-------------|
+| Docker stack | 80 | Runs Orthanc PACS behind an nginx reverse proxy |
+| Webpack dev server | 3000 | Runs the custom WiseSpine OHIF viewer, proxying DICOMweb requests to the Docker stack |
+
+---
+
+## Step 1 — Clone the Orthanc Setup Samples
+
+From the WiseSpine project root:
 
 ```bash
-git clone <repo-url> WiseSpine
 cd WiseSpine
+git clone https://github.com/orthanc-server/orthanc-setup-samples.git
 ```
 
-### 2. Install Node dependencies
+> Reference video: https://www.youtube.com/watch?v=pRI4GIgDYYY
+
+---
+
+## Step 2 — Start the Orthanc Docker Stack
+
+```bash
+cd orthanc-setup-samples/docker/ohif
+docker compose up --build
+```
+
+Verify all containers are running:
+
+```bash
+docker ps
+```
+
+You should see **5 containers**: `nginx`, `ohif`, `orthanc-container`, `orthanc-plugin`, and `orthanc-index`.
+
+**Docker URLs (once running):**
+
+| URL | Purpose |
+|-----|---------|
+| `http://localhost/orthanc-container/ui/app/` | Orthanc Explorer — upload DICOM files here |
+| `http://localhost/orthanc-plugin/ui/app/` | Orthanc Explorer (plugin variant) |
+| `http://localhost/ohif/` | Stock OHIF viewer (not the custom WiseSpine build) |
+
+---
+
+## Step 3 — Upload DICOM Images to Orthanc
+
+1. Open `http://localhost/orthanc-container/ui/app/`
+2. Click the **Upload** button
+3. Drag and drop your `.dcm` files
+4. The study will appear in the study list after upload completes
+
+---
+
+## Step 4 — Configure OHIF to Connect to Orthanc
+
+### 4a. Set the config file
+
+In `Viewers/platform/app/.env`, set:
+
+```
+APP_CONFIG=config/local_orthanc.js
+```
+
+### 4b. Verify the data source endpoints
+
+In [Viewers/platform/app/public/config/local_orthanc.js](Viewers/platform/app/public/config/local_orthanc.js), the data source must use these relative paths:
+
+```js
+wadoUriRoot: '/orthanc-container/dicom-web',
+qidoRoot:    '/orthanc-container/dicom-web',
+wadoRoot:    '/orthanc-container/dicom-web',
+```
+
+### 4c. Add the Webpack proxy rule
+
+In `Viewers/platform/app/.webpack/webpack.pwa.js`, add an entry to the `devServer.proxy` array:
+
+```js
+{
+  context: ['/orthanc-container'],
+  target: 'http://localhost',
+  changeOrigin: true,
+}
+```
+
+This forwards all `/orthanc-container/*` requests from the dev server (port 3000) to the Docker nginx (port 80), avoiding CORS issues.
+
+---
+
+## Step 5 — Start the OHIF Dev Server
 
 ```bash
 cd Viewers
 yarn install
+yarn dev
 ```
 
-This installs all OHIF monorepo packages and the custom WiseSpine extension/mode via Yarn workspaces. It will take a few minutes on the first run.
-
-### 3. Create the AI config file
-
-The AI chatbot requires an API key file that is **not committed to git**. Create it manually:
-
-```
-ohif-modes/wisespine-extension-layout/src/components/aiConfig.ts
-```
-
-```ts
-export const GEMINI_API_KEY = 'your-gemini-api-key';     // leave blank string '' to disable
-export const DEEPSEEK_API_KEY = 'your-deepseek-api-key'; // leave blank string '' to disable
-```
-
-If a key is left as an empty string `''`, that provider will be hidden from the model dropdown.
+The dev server starts at **`http://localhost:3000`**.
 
 ---
 
-## Running the Stack
+## Step 6 — View Your DICOM Images
 
-You need two things running at the same time: the **Orthanc backend** (via Docker) and the **OHIF dev server**.
+1. Open `http://localhost:3000` — the Study List shows studies from Orthanc
+2. Click a study to open it
+3. Select the **WiseSpine** mode to view it in the custom layout
 
-### Step 1 — Start Orthanc (Docker)
+To open a study directly in WiseSpine mode:
 
-```bash
-cd orthanc-setup-samples/docker/ohif
-docker compose up
 ```
-
-This starts:
-- **Orthanc** DICOM server with DICOMweb enabled (accessible at `http://localhost:8053`)
-- **nginx** reverse proxy routing `/orthanc-container/` to Orthanc
-
-Leave this terminal running.
-
-### Step 2 — Start the OHIF dev server
-
-Open a new terminal:
-
-```bash
-cd Viewers
-APP_CONFIG=config/local_orthanc.js yarn dev
+http://localhost:3000/wiseSpine?StudyInstanceUIDs=<STUDY_INSTANCE_UID>
 ```
-
-The viewer will be available at **`http://localhost:3000`**.
-
-> The `local_orthanc.js` config points OHIF's DICOMweb data source at the Orthanc container running via Docker.
 
 ---
 
-## Using the AI Chat Panel
+## AI Chat Panel
 
-The AI chat tab appears in the **right side panel** of the viewer whenever you open a study.
+The AI Chat tab appears in the right side panel whenever a study is open.
 
-### Ollama (local, no API key required)
+### Ollama — local models (no API key required)
 
 1. Install Ollama from [ollama.com](https://ollama.com)
 2. Pull a model:
    ```bash
-   ollama pull mistral-small3.1   # supports images
+   ollama pull mistral-small3.1   # vision: supports image input
    ollama pull llama3.2            # text only
    ```
-3. Start Ollama with CORS enabled so the browser can reach it:
+3. Start Ollama with CORS allowed for the dev server:
    ```bash
    # macOS / Linux
    OLLAMA_ORIGINS=http://localhost:3000 ollama serve
@@ -119,57 +170,72 @@ The AI chat tab appears in the **right side panel** of the viewer whenever you o
    # Windows (PowerShell)
    $env:OLLAMA_ORIGINS="http://localhost:3000"; ollama serve
    ```
-4. Open the viewer, select a study, open the **AI Chat** tab, and pick the model from the dropdown.
+4. Open a study, click the **AI Chat** tab, and select the model from the dropdown.
 
-### DeepSeek (cloud)
+### DeepSeek — cloud
 
-Add your key to `aiConfig.ts` (`DEEPSEEK_API_KEY`). Models `deepseek-v3` and `deepseek-reasoner` will appear in the dropdown automatically.
+Add your key to `aiConfig.ts` (`DEEPSEEK_API_KEY`). Models `deepseek-v3` and `deepseek-reasoner` will appear automatically.
 
-### Gemini (cloud)
+### Gemini — cloud
 
-Add your key to `aiConfig.ts` (`GEMINI_API_KEY`). Model `gemini-2.5-flash` will appear in the dropdown.
+Add your key to `aiConfig.ts` (`GEMINI_API_KEY`). Model `gemini-2.5-flash` will appear automatically.
 
----
+### Creating aiConfig.ts
 
-## Uploading DICOM Files
+This file is **gitignored and must be created manually**:
 
-1. Open `http://localhost:3000`
-2. On the study list page, use the **Upload** button (top right) to drag-and-drop `.dcm` files
-3. Orthanc stores them persistently in a Docker volume
+```
+ohif-modes/wisespine-extension-layout/src/components/aiConfig.ts
+```
 
-Alternatively, upload directly to Orthanc's REST API:
-
-```bash
-curl -X POST http://localhost:8053/instances --data-binary @your-file.dcm
+```ts
+export const GEMINI_API_KEY = 'your-gemini-api-key';     // '' to disable
+export const DEEPSEEK_API_KEY = 'your-deepseek-api-key'; // '' to disable
 ```
 
 ---
 
-## Common Issues
+## Troubleshooting
 
-**`yarn install` fails with peer dependency errors**
-Run `yarn install --ignore-engines` or ensure you are on Node 20.x.
+**`EADDRINUSE` error on port 3000**
 
-**Blank study list after Docker starts**
-Orthanc takes ~10 seconds to be fully ready. Refresh the page. If it persists, check `docker compose logs orthanc-container`.
+Another process is using port 3000. Find and kill it:
+
+```powershell
+netstat -ano | findstr :3000
+taskkill /PID <PID_NUMBER> /F
+```
+
+**"Data source is not configured correctly or is not running"**
+
+- Verify Docker containers are running: `docker ps`
+- Check the endpoint is reachable: open `http://localhost/orthanc-container/dicom-web/studies` in your browser
+- Ensure `APP_CONFIG=config/local_orthanc.js` is set in `.env`
+- Ensure the Webpack proxy rule for `/orthanc-container` exists in `webpack.pwa.js`
+
+**CORS errors in browser console**
+
+The dev server proxy is not forwarding requests. Verify the proxy entry in `webpack.pwa.js` includes the `/orthanc-container` context.
+
+**No studies appear in the study list**
+
+Confirm you uploaded DICOM files via the Orthanc Explorer UI at `http://localhost/orthanc-container/ui/app/`.
 
 **Ollama models do not appear in the dropdown**
-Ensure Ollama is running with `OLLAMA_ORIGINS` set to `http://localhost:3000`. Without this, the browser will get a CORS error and the model list will be empty.
 
-**AI Chat: "Thinking…" spinner never resolves**
-- For Ollama: confirm `ollama serve` is running and the selected model is pulled (`ollama list`).
-- For cloud providers: check that the API key in `aiConfig.ts` is valid and not empty.
-
-**Port 3000 already in use**
-Set a different port: `OHIF_PORT=3001 APP_CONFIG=config/local_orthanc.js yarn dev`
+Ensure Ollama is running with `OLLAMA_ORIGINS` set to `http://localhost:3000`. Without this the browser receives a CORS error and the model list stays empty.
 
 ---
 
-## Project-Specific Files
+## Key Files Reference
 
 | File | Purpose |
 |------|---------|
-| `Viewers/platform/app/src/pluginImports.js` | Registers the `@wisespine/extension-layout` extension and `wise-spine` mode with OHIF |
-| `Viewers/platform/app/public/config/local_orthanc.js` | OHIF data source config pointing at Orthanc via Docker |
-| `ohif-modes/wisespine-extension-layout/src/components/aiConfig.ts` | API keys — **never commit this file** |
-| `ohif-modes/wisespine-extension-layout/src/components/CHATBOT_README.md` | Detailed chatbot component documentation |
+| `Viewers/platform/app/.env` | Sets which config file OHIF uses |
+| `Viewers/platform/app/public/config/local_orthanc.js` | OHIF DICOMweb data source config |
+| `Viewers/platform/app/.webpack/webpack.pwa.js` | Webpack dev server proxy rules |
+| `orthanc-setup-samples/docker/ohif/docker-compose.yml` | Docker stack definition |
+| `ohif-modes/wise-spine/src/index.jsx` | WiseSpine mode definition |
+| `ohif-modes/wisespine-extension-layout/` | Custom layout extension + AI chatbot |
+| `ohif-modes/wisespine-extension-layout/src/components/aiConfig.ts` | API keys — **never commit** |
+| `ohif-modes/wisespine-extension-layout/src/components/CHATBOT_README.md` | Chatbot component documentation |
